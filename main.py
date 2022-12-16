@@ -10,14 +10,27 @@ class Agente_Coordenador(Agent):
             self.expression = None
             print("Ativando Agente Coordenador")
         async def run(self):
-            self.expression = input("Digite a equação: ")
-            print(self.expression) # Mostrando a Equação Captada 
+            self.expression = input("Digite a equação: ").replace(" ", "") # Expressão sem espaços
+            print(self.expression) # Mostrando a Equação Captada
             
             
+            ################################################
+            # Codigo pra separar a equação em sub-equações #
+            ################################################
             
+            ########################################################
+            # Codigo para enviar a equação pra cada um dos agentes #
+            # if (operador x) -> envie para agente x               # 
+            ########################################################
             
-            msg = Message(to="somador@127.0.0.1")
+            # Removendo os operadores para enviar apenas os numeros
+            self.expression = self.expression.replace("+", " ")
+            self.expression = self.expression.replace("-", " ")
+            
+            msg = Message(to="somador@127.0.0.1") # teste mandando pro somador
             msg.body = self.expression
+            await self.send(msg)
+            msg.to = "subtrator@127.0.0.1" # teste mandando pro subtrator
             await self.send(msg)
         
     async def setup(self):
@@ -57,7 +70,7 @@ class Agente_Subtrator(Agent):
             msg = await self.receive()
             if msg:
                 operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Subtrator: Mensagem Recebida, realizando operação {operando[0]} + {operando[1]}")
+                print(f"Agente Subtrator: Mensagem Recebida, realizando operação {operando[0]} - {operando[1]}")
                 resultado = float(operando[0]) - float(operando[1])
                 print(f"Agente Subtrator: Calculo realizado, o resultado é {resultado}")
                 
