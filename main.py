@@ -115,7 +115,6 @@ class AgenteCoordenador(Agent):
                 resultado = await self.enviar_para_agente_responsavel(operacao, valor1, valor2)
 
             valores.append(resultado)
-            
             return valores, operacoes
                 
         async def enviar_para_agente_responsavel(self, operacao, valor1, valor2 = None):
@@ -285,54 +284,6 @@ class AgentePotencia(Agent):
                 await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ResolucaoDePotencia())
-
-# Raiz quadrada
-class AgenteRaizQuadrada(Agent):
-    class ResolucaoDeRaizQuadrada(CyclicBehaviour):
-        async def on_start(self):
-            print("Ativando Agente Raiz Quadrada")
-            
-        async def run(self):
-            msg = await self.receive()
-            
-            if msg:
-                valor = msg.body
-                resultado = float(valor) ** (1/2) 
-                
-                # Codigo para enviar o resultado do calculo de volta
-                sender = msg.sender
-                metadata = msg.metadata
-                msg = Message(to=str(sender))
-                msg.body = str(resultado)
-                msg.metadata
-                await self.send(msg)
-
-    async def setup(self):
-        self.add_behaviour(self.ResolucaoDeRaizQuadrada())
-
-class AgenteSinal(Agent):
-    class ResolucaoDeSinal(CyclicBehaviour):
-        async def on_start(self):
-            print("Ativando Agente do sinal")
-        
-        async def run(self):
-            msg = await self.receive()
-            
-            if msg:
-                valor1 = msg.body
-                resultado = -float(valor1)
-                
-                # Codigo para enviar o resultado do calculo de volta
-                sender = msg.sender
-                metadata = msg.metadata
-                msg = Message(to=str(sender))
-                msg.body = str(resultado)
-                msg.metadata = metadata
-                await self.send(msg)
-
-    async def setup(self):
-        self.add_behaviour(self.ResolucaoDeSinal())
 
 # Main
 if __name__ == "__main__":
@@ -362,6 +313,21 @@ if __name__ == "__main__":
 
     agente_sinal = AgenteSinal("agente_sinal@127.0.0.1", "12345678")
     future = agente_sinal.start()
+    
+    multiplicador = Agente_Multiplicador("multiplicador@127.0.0.1", "spade2000")
+    future = subtrator.start()
+    future.result()
+    
+    divisor = Agente_Divisor("divisor@127.0.0.1", "spade2000")
+    future = subtrator.start()
+    future.result()
+    
+    potencia = Agente_Potencia("potencia@127.0.0.1", "spade2000")
+    future = subtrator.start()
+    future.result()
+    
+    raiz_quadrada = Agente_Raiz_Quadrada("raiz_quadrada@127.0.0.1", "spade2000")
+    future = subtrator.start()
     future.result()
 
     agente_coordenador = AgenteCoordenador("agente_coordenador@127.0.0.1", "12345678")
