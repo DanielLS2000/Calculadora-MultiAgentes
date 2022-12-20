@@ -1,196 +1,318 @@
 import time
 import math
+import sys
 from spade.agent import Agent
-from spade.behaviour import CyclicBehaviour, OneShotBehaviour
+from spade.behaviour import CyclicBehaviour
 from spade.message import Message
+
 # Coordenador
-class Agente_Coordenador(Agent):
-    class SolveExpression(OneShotBehaviour):
+class AgenteCoordenador(Agent):
+    class ResolucaoDeExpressao(CyclicBehaviour):
         async def on_start(self):
-            self.expression = None
             print("Ativando Agente Coordenador")
+            self.expressao = None
+            
         async def run(self):
-            self.expression = input("Digite a equação: ").replace(" ", "") # Expressão sem espaços
-            print(self.expression) # Mostrando a Equação Captada
-            
-            
-            ################################################
-            # Codigo pra separar a equação em sub-equações #
-            ################################################
-            
-            ########################################################
-            # Codigo para enviar a equação pra cada um dos agentes #
-            # if (operador x) -> envie para agente x               #
-            ########################################################
-            
-            # Removendo os operadores para enviar apenas os numeros
-            self.expression = self.expression.replace("+", " ")
-            self.expression = self.expression.replace("-", " ")
-            
-            msg = Message(to="somador@127.0.0.1") # teste mandando pro somador
-            msg.body = self.expression
+            self.expressao = ""
+
+            while self.expressao == "":
+                self.expressao = input("Digite uma expressão: ").replace(" ", "")
+
+            print(self.expressao) # Mostrando a Equação Captada
+            valores = []
+            operacoes = []
+            i = 0
+
+            while i < len(self.expressao):
+                caracter = self.expressao[i]
+
+                # Marca o início de uma expressão entre parênteses.
+                if caracter == "(":
+                    operacoes.append(caracter)
+
+                # Se o caracter for numérico, descobre e extrai o número completo(operando).
+                elif caracter.isdigit():
+                    valores, i = self.retornar_operando(valores, self.expressao, i)
+                # Se encontrar um ")", resolver subexpressão até encontrar "("
+                elif caracter == ")":
+                    while len(operacoes) != 0 and operacoes[-1] != "(":
+                        valores, operacoes = await self.resolver_subexpressao(valores, operacoes)
+
+                    operacoes.pop() # Remove o "(" correspondente ao ")" acima. 
+
+                # O caracter atual é uma operaçao. É necessário comparar a operação atual com a última salva.
+                else:
+                    # Se o menos for sinal, em vez de operação
+                    if caracter == "-" and self.eh_sinal_negativo(self.expressao, i):
+                        caracter = "!"
+
+                    # Se a operação do topo, tiver prioriadade superior, resolvê-la.
+                    while len(operacoes) != 0 and self.retornar_precedencia(operacoes[-1]) >= self.retornar_precedencia(caracter):
+                        valores, operacoes = await self.resolver_subexpressao(valores, operacoes)
+
+                    # adiciona operação atual a pilha
+                    operacoes.append(caracter)
+
+                i += 1
+
+            while len(operacoes) != 0:
+                valores, operacoes = await self.resolver_subexpressao(valores, operacoes)
+
+            print(f"Resultado final: {valores.pop()}") # O que estiver no topo é o resultado da subexpressao
+
+        # Retorna o nível de prioridade da operação.
+        def retornar_precedencia(self, operacao):
+            if operacao == '+' or operacao == '-':
+                return 1
+
+            if operacao == 'x' or operacao == '/':
+                return 2
+
+            if operacao == "^" or operacao == "#":
+                return 3
+
+            if operacao == "!":
+                return 4
+
+            return 0
+
+        def retornar_operando(self, valores, expressao, i):
+            j = i
+            valor = ""
+            # Enquanto o próximo caracter for numérico
+            while (j < len(expressao) and (expressao[j].isdigit() or expressao[j] == ".")):
+                valor += expressao[j]
+                j += 1
+
+            valor = float(valor)
+            valores.append(valor)
+
+            j -= 1 # Volta para o indíce anterior, porque o loop para em um caracter não numérico, que ainda deve ser analisado.
+            return valores, j
+
+        # Determina se um "-" é sinal ou operação.
+        def eh_sinal_negativo(self, expressao, i):
+            j = i - 1
+            eh_sinal = True
+
+            if j >= 0 and (expressao[j].isdigit() or expressao[j] == ")"):
+                    eh_sinal = False
+
+            return eh_sinal
+
+        # Resolve a subexpressao de maior prioridade, retornando as pilhas de valores e operacoes atualizadas
+        async def resolver_subexpressao(self, valores, operacoes):
+            operacao = operacoes.pop()
+
+            # raiz quadrada é uma operação unária
+            if operacao == "#" or operacao == "!":
+                valor = valores.pop()
+                resultado = await self.enviar_para_agente_responsavel(operacao, valor)
+
+            else:
+                valor2 = valores.pop()
+                valor1 = valores.pop()
+                resultado = await self.enviar_para_agente_responsavel(operacao, valor1, valor2)
+
+            valores.append(resultado)
+            return valores, operacoes
+                
+        async def enviar_para_agente_responsavel(self, operacao, valor1, valor2 = None):
+            msg = Message()
+
+            if operacao == "#" or operacao == "!":
+                msg.body = f"{valor1}"
+
+                if operacao == "#":
+                    if valor1 < 0:
+                        print("Não existem raizes quadradas reais negativas!")
+                        sys.exit()
+
+                    msg.to = "agente_raiz@127.0.0.1" 
+                    msg.metadata = {"operator" : "#", "value1" : valor1, "value2" : None}
+
+                else:
+                    msg.to = "agente_sinal@127.0.0.1" 
+                    msg.metadata = {"operator" : "!", "value1" : valor1, "value2" : None}
+                
+            else:
+                msg.body = f"{valor1} {valor2}"
+
+                if operacao == "+":
+                    msg.to = "agente_soma@127.0.0.1"
+                    msg.metadata = {"operator" : "+", "value1" : valor1, "value2" : valor2}
+
+                elif operacao == "-":
+                    msg.to = "agente_subtracao@127.0.0.1"
+                    msg.metadata = {"operator" : "-", "value1" : valor1, "value2" : valor2}
+
+                elif operacao == "x":
+                    msg.to = "agente_multiplicacao@127.0.0.1" 
+                    msg.metadata = {"operator" : "x", "value1" : valor1, "value2" : valor2}
+
+                elif operacao == "/":
+                    if valor2 == 0:
+                        print("Não é permitido dividir por zero!")
+                        sys.exit()
+
+                    msg.to = "agente_divisao@127.0.0.1"
+                    msg.metadata = {"operator" : "/", "value1" : valor1, "value2" : valor2}
+
+                elif operacao == "^":
+                    msg.to = "agente_potencia@127.0.0.1"
+                    msg.metadata = {"operator" : "^", "value1" : valor1, "value2" : valor2}
+
             await self.send(msg)
-            msg.to = "subtrator@127.0.0.1" # teste mandando pro subtrator
-            await self.send(msg)
-        
+            resultado = await self.receive(timeout = 60)
+            resultado = float(resultado.body)
+            return resultado
+
     async def setup(self):
-        self.add_behaviour(self.SolveExpression())
+        self.add_behaviour(self.ResolucaoDeExpressao())
 
 # Somador
-class Agente_Somador(Agent):
-    class ReceiveMsg(CyclicBehaviour):
+class AgenteSoma(Agent):
+    class ResolucaoDeSoma(CyclicBehaviour):
         async def on_start(self):
             print("Ativando Agente Somador")
         
         async def run(self):
             msg = await self.receive()
+            
             if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Somador: Mensagem Recebida, realizando operação {operando[0]} + {operando[1]}")
-                resultado = float(operando[0]) + float(operando[1])
-                print(f"Agente Somador: Calculo realizado, o resultado é {resultado}")
+                valor1, valor2 = msg.body.split()
+                resultado = float(valor1) + float(valor2)
                 
                 # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
+                sender = msg.sender
+                metadata = msg.metadata
+                msg = Message(to=str(sender))
+                msg.body = str(resultado)
+                msg.metadata = metadata
+                await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
+        self.add_behaviour(self.ResolucaoDeSoma())
 
 # Subtrator
-class Agente_Subtrator(Agent):
-    class ReceiveMsg(CyclicBehaviour):
+class AgenteSubtracao(Agent):
+    class ResolucaoDeSubtracao(CyclicBehaviour):
         async def on_start(self):
             print("Ativando Agente Subtrator")
+
         async def run(self):
             msg = await self.receive()
+            
             if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Subtrator: Mensagem Recebida, realizando operação {operando[0]} - {operando[1]}")
-                resultado = float(operando[0]) - float(operando[1])
-                print(f"Agente Subtrator: Calculo realizado, o resultado é {resultado}")
-                
+                valor1, valor2 = msg.body.split()
+                resultado = float(valor1) - float(valor2)              
                 # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
+                sender = msg.sender
+                metadata = msg.metadata
+                msg = Message(to=str(sender))
+                msg.body = str(resultado)
+                msg.metadata = metadata
+                await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
-        
-# Multiplicador
-class Agente_Multiplicador(Agent):
-    class ReceiveMsg(CyclicBehaviour):
+        self.add_behaviour(self.ResolucaoDeSubtracao())
+
+class AgenteMultiplicacao(Agent):
+    class ResolucaoDeMultiplicacao(CyclicBehaviour):
         async def on_start(self):
             print("Ativando Agente Multiplicador")
+
         async def run(self):
             msg = await self.receive()
+            
             if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Multiplicador: Mensagem Recebida, realizando operação {operando[0]} * {operando[1]}")
-                resultado = float(operando[0]) * float(operando[1])
-                print(f"Agente Multiplicador: Calculo realizado, o resultado é {resultado}")
+                valor1, valor2 = msg.body.split()
+                resultado = float(valor1) * float(valor2)
                 
                 # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
+                sender = msg.sender
+                metadata = msg.metadata
+                msg = Message(to=str(sender))
+                msg.body = str(resultado)
+                msg.metadata = metadata
+                await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
-        
-# Divisor
-class Agente_Divisor(Agent):
-    class ReceiveMsg(CyclicBehaviour):
+        self.add_behaviour(self.ResolucaoDeMultiplicacao())
+
+class AgenteDivisao(Agent):
+    class ResolucaoDeDivisao(CyclicBehaviour):
         async def on_start(self):
-            print("Ativando Agente Divisor")
+            print("Ativando Agente da divisao")
+
         async def run(self):
             msg = await self.receive()
+            
             if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Divisor: Mensagem Recebida, realizando operação {operando[0]} / {operando[1]}")
-                resultado = float(operando[0]) / float(operando[1])
-                print(f"Agente Divisor: Calculo realizado, o resultado é {resultado}")
+                valor1, valor2 = msg.body.split()
+                resultado = float(valor1) / float(valor2)
                 
                 # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
+                sender = msg.sender
+                metadata = msg.metadata
+                msg = Message(to=str(sender))
+                msg.body = str(resultado)
+                msg.metadata = metadata
+                await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
-        
-# Potencia
-class Agente_Potencia(Agent):
-    class ReceiveMsg(CyclicBehaviour):
+        self.add_behaviour(self.ResolucaoDeDivisao())
+
+class AgentePotencia(Agent):
+    class ResolucaoDePotencia(CyclicBehaviour):
         async def on_start(self):
-            print("Ativando Agente Potencia")
+            print("Ativando Agente da potencia")
+
         async def run(self):
             msg = await self.receive()
+            
             if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Potencia: Mensagem Recebida, realizando operação {operando[0]} ^ {operando[1]}")
-                resultado = float(operando[0]) ** float(operando[1])
-                print(f"Agente Potencia: Calculo realizado, o resultado é {resultado}")
+                valor1, valor2 = msg.body.split()
+                resultado = float(valor1) ** float(valor2)
                 
                 # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
+                sender = msg.sender
+                metadata = msg.metadata
+                msg = Message(to=str(sender))
+                msg.body = str(resultado)
+                msg.metadata
+                await self.send(msg)
 
     async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
-    
-# Raiz Quadrada
-class Agente_Raiz_Quadrada(Agent):
-    class ReceiveMsg(CyclicBehaviour):
-        async def on_start(self):
-            print("Ativando Agente Raiz Quadrada")
-        async def run(self):
-            msg = await self.receive()
-            if msg:
-                operando = msg.body.split(" ") # transformando a string num array
-                print(f"Agente Raiz Quadrada: Mensagem Recebida, realizando operação √{operando[0]}") # o simbolo da radiciação é #
-                resultado = float(operando[0]) ** (1/2)
-                print(f"Agente Raiz Quadrada: Calculo realizado, o resultado é {resultado}")
-                
-                # Codigo para enviar o resultado do calculo de volta
-                # sender = msg.sender
-                # msg = Message(to=str(sender))
-                # msg.body = str(resultado)
-                # await self.send(msg)
-                # print(f'Agente Somador: Resposta enviada')
-                # time.sleep(5)
-
-    async def setup(self):
-        self.add_behaviour(self.ReceiveMsg())
 
 # Main
 if __name__ == "__main__":
-    
-    somador = Agente_Somador("somador@127.0.0.1", "spade2000")
-    future = somador.start()
+    agente_soma = AgenteSoma("agente_soma@127.0.0.1", "12345678")
+    future = agente_soma.start()
     future.result()
-    
-    subtrator = Agente_Subtrator("subtrator@127.0.0.1", "spade2000")
-    future = subtrator.start()
+
+    agente_subtracao = AgenteSubtracao("agente_subtracao@127.0.0.1", "12345678")
+    future = agente_subtracao.start()
     future.result()
+
+    agente_multiplicacao = AgenteMultiplicacao("agente_multiplicacao@127.0.0.1", "12345678")
+    future = agente_multiplicacao.start()
+    future.result()
+
+    agente_divisao = AgenteDivisao("agente_divisao@127.0.0.1", "12345678")
+    future = agente_divisao.start()
+    future.result()
+
+    agente_potencia = AgentePotencia("agente_potencia@127.0.0.1", "12345678")
+    future = agente_potencia.start()
+    future.result()
+
+    agente_raiz_quadrada = AgenteRaizQuadrada("agente_raiz@127.0.0.1", "12345678")
+    future = agente_raiz_quadrada.start()
+    future.result()
+
+    agente_sinal = AgenteSinal("agente_sinal@127.0.0.1", "12345678")
+    future = agente_sinal.start()
     
     multiplicador = Agente_Multiplicador("multiplicador@127.0.0.1", "spade2000")
     future = subtrator.start()
@@ -207,17 +329,23 @@ if __name__ == "__main__":
     raiz_quadrada = Agente_Raiz_Quadrada("raiz_quadrada@127.0.0.1", "spade2000")
     future = subtrator.start()
     future.result()
-    
-    coordenador = Agente_Coordenador("admin@127.0.0.1", "spade2000")
-    future = coordenador.start()
+
+    agente_coordenador = AgenteCoordenador("agente_coordenador@127.0.0.1", "12345678")
+    future = agente_coordenador.start()
     future.result()
 
-    while coordenador.is_alive():
+    while agente_coordenador.is_alive():
         try:
             time.sleep(1)
         except KeyboardInterrupt:
-            somador.stop()
-            subtrator.stop()
-            coordenador.stop()
+            agente_soma.stop()
+            agente_subtracao.stop()
+            agente_multiplicacao.stop()
+            agente_divisao.stop()
+            agente_potencia.stop()
+            agente_raiz_quadrada.stop()
+            agente_sinal.stop()
+            agente_coordenador.stop()
             break
+
     print("Os Agentes Foram Desativados")
